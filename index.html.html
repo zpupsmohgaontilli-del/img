@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Photo & Signature Combiner (4.5 x 8.5 cm)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Font: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- jsPDF for printable PDF output -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#eff6ff',
+                            100: '#dbeafe',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styled range sliders */
+        input[type=range] {
+            accent-color: #2563eb;
+        }
+        .canvas-shadow {
+            box-shadow: 0 15px 35px -5px rgba(0, 0, 0, 0.15), 0 0 1px rgba(0, 0, 0, 0.2);
+        }
+        .checkerboard {
+            background-color: #f8fafc;
+            background-image: 
+                linear-gradient(45deg, #e2e8f0 25%, transparent 25%), 
+                linear-gradient(-45deg, #e2e8f0 25%, transparent 25%), 
+                linear-gradient(45deg, transparent 75%, #e2e8f0 75%), 
+                linear-gradient(-45deg, transparent 75%, #e2e8f0 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased h-screen h-[100dvh] overflow-hidden flex flex-col font-sans select-none">
+
+    <!-- Compact Sticky Header (h-12 / 48px) -->
+    <header class="bg-white border-b border-slate-200 shrink-0 h-12 px-3 sm:px-5 flex items-center justify-between z-20">
+        <div class="flex items-center space-x-2.5 min-w-0">
+            <div class="w-7 h-7 shrink-0 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-xs">
+                <i data-lucide="layers" class="w-4 h-4"></i>
+            </div>
+            <div class="min-w-0">
+                <h1 class="text-xs sm:text-sm font-bold text-slate-900 leading-tight truncate">DocuMerge Studio</h1>
+                <p class="text-[10px] text-slate-400 font-medium truncate hidden sm:block">4.5 × 8.5 cm Photo & Sign (300 DPI)</p>
+            </div>
+        </div>
+
+        <!-- Mobile View Toggle (Only shown on small screens to guarantee zero-scroll) -->
+        <div class="flex md:hidden bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <button id="mobileTabEditor" onclick="switchMobileView('editor')" class="px-2.5 py-1 rounded-md text-[11px] font-bold bg-white text-blue-600 shadow-xs flex items-center gap-1 transition">
+                <i data-lucide="sliders" class="w-3 h-3"></i>
+                <span>Edit</span>
+            </button>
+            <button id="mobileTabPreview" onclick="switchMobileView('preview')" class="px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition">
+                <i data-lucide="eye" class="w-3 h-3"></i>
+                <span>Preview</span>
+            </button>
+        </div>
+
+        <div class="flex items-center space-x-2">
+            <div id="fileSizeBadge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-600 text-white">
+                <span class="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+                <span id="currentSizeText">~70 KB</span>
+            </div>
+            <button id="resetAllBtn" title="Reset all" class="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-100 transition">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+            </button>
+            <div class="relative inline-block text-left">
+                <button id="downloadDropdownBtn" class="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold shadow-xs transition flex items-center gap-1">
+                    <i data-lucide="download" class="w-3 h-3"></i>
+                    <span class="hidden sm:inline">Export</span>
+                    <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                </button>
+                <div id="downloadMenu" class="hidden absolute right-0 mt-1.5 w-44 rounded-xl bg-white shadow-xl ring-1 ring-black/5 border border-slate-100 py-1 z-50">
+                    <button onclick="downloadOptimizedJpg()" class="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-emerald-50 hover:text-emerald-700 font-semibold flex items-center justify-between">
+                        <span>JPEG (50–90 KB)</span>
+                        <span class="text-[9px] text-emerald-600 font-bold bg-emerald-100 px-1 rounded">Target</span>
+                    </button>
+                    <button onclick="downloadAs('png')" class="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-600 font-medium flex items-center justify-between border-t border-slate-100">
+                        <span>Lossless PNG</span>
+                        <span class="text-[9px] text-slate-400 font-mono">300 DPI</span>
+                    </button>
+                    <button onclick="downloadAs('pdf')" class="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-600 font-medium flex items-center justify-between border-t border-slate-100">
+                        <span>Printable PDF</span>
+                        <span class="text-[9px] text-slate-400 font-mono">45x85mm</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Workspace: Strict Flex-1 Fit with zero scroll on outer page -->
+    <main class="flex-1 min-h-0 w-full max-w-7xl mx-auto p-2 sm:p-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-stretch overflow-hidden">
+        
+        <!-- Left Panel: Compact Tool Tabs & Uploads (md:col-span-6 lg:col-span-5) -->
+        <section id="editorPanel" class="flex flex-col h-full min-h-0 md:col-span-6 lg:col-span-5 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+            <!-- Sub-tabs navigation -->
+            <div class="flex items-center border-b border-slate-200 bg-slate-50/70 p-1 gap-1 shrink-0">
+                <button id="tabBtnPhoto" onclick="switchSubTab('photo')" class="flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold bg-white text-blue-600 shadow-xs flex items-center justify-center gap-1.5 transition">
+                    <i data-lucide="camera" class="w-3.5 h-3.5"></i>
+                    <span>Photo</span>
+                    <span id="photoIndicator" class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                </button>
+                <button id="tabBtnSign" onclick="switchSubTab('sign')" class="flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1.5 transition">
+                    <i data-lucide="feather" class="w-3.5 h-3.5"></i>
+                    <span>Signature</span>
+                    <span id="signIndicator" class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>
+                </button>
+                <button id="tabBtnSettings" onclick="switchSubTab('settings')" class="flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1.5 transition">
+                    <i data-lucide="sliders-horizontal" class="w-3.5 h-3.5"></i>
+                    <span>Settings</span>
+                </button>
+            </div>
+
+            <!-- Tab Content (Scroll internally if ultra-small screen, but outer page remains 100% frozen) -->
+            <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-3">
+                
+                <!-- SUB-TAB 1: PHOTO -->
+                <div id="subTabPhoto" class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-xs font-bold text-slate-800">Passport Photo Slot</span>
+                            <p class="text-[10px] text-slate-400">Spec: 3.5 × 4.5 cm (Top Center)</p>
+                        </div>
+                        <span id="photoStatusBadge" class="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Awaiting Upload</span>
+                    </div>
+
+                    <!-- Compact Dropzone Photo -->
+                    <div id="photoDropzone" class="relative group border-2 border-dashed border-slate-200 hover:border-blue-500 rounded-xl p-3 text-center cursor-pointer transition bg-slate-50/50 hover:bg-blue-50/20">
+                        <input type="file" id="photoInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                        <div class="flex items-center justify-center space-x-2 pointer-events-none">
+                            <div class="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                                <i data-lucide="upload-cloud" class="w-4 h-4"></i>
+                            </div>
+                            <div class="text-left">
+                                <p class="text-xs font-semibold text-slate-700">Choose / Drop Photo</p>
+                                <p class="text-[10px] text-slate-400">JPG, PNG, WEBP</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Photo Sliders -->
+                    <div class="bg-slate-50/80 rounded-xl p-2.5 border border-slate-100 space-y-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <div class="flex justify-between text-[11px] font-medium text-slate-600 mb-0.5">
+                                    <span>Zoom</span>
+                                    <span id="photoZoomVal" class="text-slate-400 font-mono text-[10px]">1.0x</span>
+                                </div>
+                                <input id="photoZoom" type="range" min="0.5" max="2.5" step="0.02" value="1.0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[11px] font-medium text-slate-600 mb-0.5">
+                                    <span>Rotate</span>
+                                    <span id="photoRotVal" class="text-slate-400 font-mono text-[10px]">0°</span>
+                                </div>
+                                <input id="photoRot" type="range" min="-180" max="180" step="1" value="0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <div class="flex justify-between text-[11px] font-medium text-slate-600 mb-0.5">
+                                    <span>Pan X</span>
+                                    <span id="photoXVal" class="text-slate-400 font-mono text-[10px]">0px</span>
+                                </div>
+                                <input id="photoX" type="range" min="-150" max="150" step="1" value="0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[11px] font-medium text-slate-600 mb-0.5">
+                                    <span>Pan Y</span>
+                                    <span id="photoYVal" class="text-slate-400 font-mono text-[10px]">0px</span>
+                                </div>
+                                <input id="photoY" type="range" min="-150" max="150" step="1" value="0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-TAB 2: SIGNATURE -->
+                <div id="subTabSign" class="hidden space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-xs font-bold text-slate-800">Signature Slot</span>
+                            <p class="text-[10px] text-slate-400">Spec: 3.5 × 1.5 cm (Bottom Center)</p>
+                        </div>
+                        <span id="signStatusBadge" class="text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">Awaiting Upload</span>
+                    </div>
+
+                    <!-- Compact Dropzone Signature -->
+                    <div id="signDropzone" class="relative group border-2 border-dashed border-slate-200 hover:border-indigo-500 rounded-xl p-3 text-center cursor-pointer transition bg-slate-50/50 hover:bg-indigo-50/20">
+                        <input type="file" id="signInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer">
+                        <div class="flex items-center justify-center space-x-2 pointer-events-none">
+                            <div class="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+                                <i data-lucide="feather" class="w-4 h-4"></i>
+                            </div>
+                            <div class="text-left">
+                                <p class="text-xs font-semibold text-slate-700">Choose / Drop Signature</p>
+                                <p class="text-[10px] text-slate-400">Blue/colored ink auto-converts to pure black</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Auto Black Ink Engine Settings -->
+                    <div class="bg-indigo-50/50 border border-indigo-100 rounded-xl p-2.5 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-bold text-indigo-900 flex items-center gap-1">
+                                <span class="w-2 h-2 rounded-full bg-black"></span>
+                                Auto Black Ink & Bleach Paper
+                            </span>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="signFilterToggle" checked class="sr-only peer">
+                                <div class="w-8 h-4 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
+                            </label>
+                        </div>
+                        <div id="filterControls" class="grid grid-cols-2 gap-2 pt-1 border-t border-indigo-100/60">
+                            <div>
+                                <div class="flex justify-between text-[10px] font-medium text-slate-600 mb-0.5">
+                                    <span>Paper Whiteness</span>
+                                    <span id="signThresholdVal" class="text-slate-400 font-mono">60%</span>
+                                </div>
+                                <input id="signThreshold" type="range" min="15" max="95" step="1" value="60" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                            <div>
+                                <div class="flex justify-between text-[10px] font-medium text-slate-600 mb-0.5">
+                                    <span>Ink Darkness</span>
+                                    <span id="signContrastVal" class="text-slate-400 font-mono">1.8x</span>
+                                </div>
+                                <input id="signContrast" type="range" min="1.0" max="3.5" step="0.1" value="1.8" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sign Scale & Rotate -->
+                    <div class="grid grid-cols-2 gap-2 bg-slate-50/80 rounded-xl p-2.5 border border-slate-100">
+                        <div>
+                            <div class="flex justify-between text-[11px] font-medium text-slate-600 mb-0.5">
+                                <span>Zoom</span>
+                                <span id="signZoomVal" class="text-slate-400 font-mono text-[10px]">1.0x</span>
+                            </div>
+                            <input id="signZoom" type="range" min="0.4" max="2.5" step="0.02" value="1.0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-[11px] font-medium text-slate-600 mb-0.5">
+                                <span>Straighten</span>
+                                <span id="signRotVal" class="text-slate-400 font-mono text-[10px]">0°</span>
+                            </div>
+                            <input id="signRot" type="range" min="-45" max="45" step="1" value="0" class="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-TAB 3: SETTINGS & FILE SIZE OPTIMIZER -->
+                <div id="subTabSettings" class="hidden space-y-3">
+                    <!-- File size target section -->
+                    <div class="bg-emerald-50/60 border border-emerald-200 rounded-xl p-2.5 space-y-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-[11px] font-bold text-emerald-900 flex items-center gap-1">
+                                <i data-lucide="gauge" class="w-3.5 h-3.5 text-emerald-700"></i>
+                                File Size (50 KB – 90 KB Target)
+                            </span>
+                            <span id="targetSizeVal" class="text-xs font-mono font-bold text-emerald-700">70 KB</span>
+                        </div>
+                        <input id="targetSizeSlider" type="range" min="50" max="90" step="1" value="70" class="w-full h-1.5 bg-emerald-200 rounded-lg appearance-none cursor-pointer accent-emerald-600">
+                        <p class="text-[10px] text-emerald-800 leading-tight">
+                            Guarantees exported JPEG stays strictly within 50 KB – 90 KB via binary search compression.
+                        </p>
+                    </div>
+
+                    <!-- Borders & Labels -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <label class="flex flex-col text-[11px] font-medium text-slate-700 gap-1">
+                            <span>Outer Border</span>
+                            <select id="outerBorderSelect" class="rounded-lg border border-slate-200 px-2 py-1 text-xs bg-slate-50">
+                                <option value="thin">Thin Gray</option>
+                                <option value="solid">Standard Black</option>
+                                <option value="none">No Border</option>
+                            </select>
+                        </label>
+                        <label class="flex flex-col text-[11px] font-medium text-slate-700 gap-1">
+                            <span>Slot Border</span>
+                            <select id="slotBorderSelect" class="rounded-lg border border-slate-200 px-2 py-1 text-xs bg-slate-50">
+                                <option value="subtle">Subtle Box</option>
+                                <option value="dashed">Dashed Guide</option>
+                                <option value="none">Seamless</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Panel Bottom Quick Export Bar -->
+            <div class="p-2 border-t border-slate-100 bg-slate-50/50 shrink-0">
+                <button onclick="downloadOptimizedJpg()" class="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition active:scale-[0.99]">
+                    <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                    <span id="downloadBtnLabel">Download JPG (50–90 KB)</span>
+                </button>
+            </div>
+        </section>
+
+        <!-- Right Panel: Auto-Fitting Viewport Preview (md:col-span-6 lg:col-span-7) -->
+        <section id="previewPanel" class="hidden md:flex flex-col h-full min-h-0 md:col-span-6 lg:col-span-7 bg-white rounded-xl border border-slate-200 shadow-xs p-2 sm:p-3 overflow-hidden">
+            <!-- Header bar for preview -->
+            <div class="flex items-center justify-between pb-1.5 mb-1.5 border-b border-slate-100 shrink-0">
+                <div class="flex items-center space-x-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span class="text-xs font-bold text-slate-900">Card Preview</span>
+                    <span class="text-[10px] text-slate-400 font-mono">(4.5 × 8.5 cm)</span>
+                </div>
+                <div class="text-[10px] text-slate-400">
+                    Drag on canvas to adjust
+                </div>
+            </div>
+
+            <!-- Auto-fitting flexible canvas container: fills available height without overflowing screen -->
+            <div class="flex-1 min-h-0 w-full checkerboard rounded-xl border border-slate-200/80 p-2 flex items-center justify-center overflow-hidden">
+                <div class="relative canvas-shadow rounded-sm bg-white flex items-center justify-center max-w-full max-h-full" style="aspect-ratio: 4.5 / 8.5; height: 100%;">
+                    <canvas id="mainCanvas" class="w-full h-full object-contain block rounded-sm cursor-crosshair select-none touch-none"></canvas>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Compact 1-line Developer Credits Footer (h-7 / 28px) -->
+    <footer class="h-7 shrink-0 bg-white border-t border-slate-200 px-3 flex items-center justify-between text-[10.5px] text-slate-600 z-10">
+        <div class="truncate font-medium">
+            <span class="text-indigo-600 font-semibold">©</span>
+            <span>Vrushabh Hiralal Borkar, Graduate Teacher, ZP Upper Primary School, Mohgaon (Ti.)</span>
+        </div>
+        <div class="hidden sm:flex items-center gap-1.5 text-slate-400 text-[10px] shrink-0 font-mono">
+            <span>300 DPI</span>
+            <span>•</span>
+            <span>50-90 KB Guaranteed</span>
+        </div>
+    </footer>
+
+    <!-- Notification Toast Element -->
+    <div id="toast" class="fixed bottom-9 right-4 z-50 transform translate-y-16 opacity-0 transition-all duration-200 pointer-events-none bg-slate-900 text-white text-[11px] px-3 py-1.5 rounded-lg shadow-xl flex items-center gap-2">
+        <i data-lucide="check-circle-2" class="w-3.5 h-3.5 text-emerald-400"></i>
+        <span id="toastMsg">Ready</span>
+    </div>
+
+    <!-- Application Engine Logic -->
+    <script>
+        // --- 1. PHYSICAL DIMENSIONS & CANVAS DPI SPECIFICATION ---
+        const DPI = 300;
+        const CM_TO_PX = DPI / 2.54;
+
+        const CARD_W_CM = 4.5;
+        const CARD_H_CM = 8.5;
+
+        const PHOTO_W_CM = 3.5;
+        const PHOTO_H_CM = 4.5;
+
+        const SIGN_W_CM = 3.5;
+        const SIGN_H_CM = 1.5;
+
+        const CANVAS_WIDTH = Math.round(CARD_W_CM * CM_TO_PX);   // 531 px
+        const CANVAS_HEIGHT = Math.round(CARD_H_CM * CM_TO_PX);  // 1004 px
+
+        const PHOTO_BOX_W = Math.round(PHOTO_W_CM * CM_TO_PX);  // 413 px
+        const PHOTO_BOX_H = Math.round(PHOTO_H_CM * CM_TO_PX);  // 531 px
+
+        const SIGN_BOX_W = Math.round(SIGN_W_CM * CM_TO_PX);    // 413 px
+        const SIGN_BOX_H = Math.round(SIGN_H_CM * CM_TO_PX);    // 177 px
+
+        const PHOTO_BOX_X = Math.round((CANVAS_WIDTH - PHOTO_BOX_W) / 2);
+        const TOP_PADDING = Math.round(0.6 * CM_TO_PX);
+        const PHOTO_BOX_Y = TOP_PADDING;
+        
+        const PHOTO_SIGN_GAP = Math.round(0.6 * CM_TO_PX);
+        const SIGN_BOX_X = Math.round((CANVAS_WIDTH - SIGN_BOX_W) / 2);
+        const SIGN_BOX_Y = PHOTO_BOX_Y + PHOTO_BOX_H + PHOTO_SIGN_GAP;
+
+        // Global State
+        const state = {
+            photo: { img: null, scale: 1.0, xOffset: 0, yOffset: 0, rotation: 0 },
+            sign: { img: null, scale: 1.0, xOffset: 0, yOffset: 0, rotation: 0, cleanBackground: true, threshold: 60, contrast: 1.8 },
+            appearance: { outerBorder: 'thin', slotBorder: 'subtle', labels: 'hide', bgColor: '#ffffff' },
+            drag: { isDragging: false, activeTarget: null, startX: 0, startY: 0, initialOffsetX: 0, initialOffsetY: 0 },
+            targetKB: 70
+        };
+
+        // Canvas DOM elements
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = CANVAS_WIDTH;
+        canvas.height = CANVAS_HEIGHT;
+
+        // UI references
+        const photoInput = document.getElementById('photoInput');
+        const signInput = document.getElementById('signInput');
+        const photoDropzone = document.getElementById('photoDropzone');
+        const signDropzone = document.getElementById('signDropzone');
+        const photoStatusBadge = document.getElementById('photoStatusBadge');
+        const signStatusBadge = document.getElementById('signStatusBadge');
+        const photoIndicator = document.getElementById('photoIndicator');
+        const signIndicator = document.getElementById('signIndicator');
+
+        const photoZoom = document.getElementById('photoZoom');
+        const photoZoomVal = document.getElementById('photoZoomVal');
+        const photoRot = document.getElementById('photoRot');
+        const photoRotVal = document.getElementById('photoRotVal');
+        const photoX = document.getElementById('photoX');
+        const photoXVal = document.getElementById('photoXVal');
+        const photoY = document.getElementById('photoY');
+        const photoYVal = document.getElementById('photoYVal');
+
+        const signZoom = document.getElementById('signZoom');
+        const signZoomVal = document.getElementById('signZoomVal');
+        const signRot = document.getElementById('signRot');
+        const signRotVal = document.getElementById('signRotVal');
+        const signFilterToggle = document.getElementById('signFilterToggle');
+        const filterControls = document.getElementById('filterControls');
+        const signThreshold = document.getElementById('signThreshold');
+        const signThresholdVal = document.getElementById('signThresholdVal');
+        const signContrast = document.getElementById('signContrast');
+        const signContrastVal = document.getElementById('signContrastVal');
+
+        const outerBorderSelect = document.getElementById('outerBorderSelect');
+        const slotBorderSelect = document.getElementById('slotBorderSelect');
+        const targetSizeSlider = document.getElementById('targetSizeSlider');
+        const targetSizeVal = document.getElementById('targetSizeVal');
+        const currentSizeText = document.getElementById('currentSizeText');
+        const fileSizeBadge = document.getElementById('fileSizeBadge');
+        const downloadBtnLabel = document.getElementById('downloadBtnLabel');
+
+        const downloadDropdownBtn = document.getElementById('downloadDropdownBtn');
+        const downloadMenu = document.getElementById('downloadMenu');
+        const resetAllBtn = document.getElementById('resetAllBtn');
+
+        let lastOptimizedBlob = null;
+        lucide.createIcons();
+
+        // Responsive mobile tab switching
+        window.switchMobileView = function(view) {
+            const editorPanel = document.getElementById('editorPanel');
+            const previewPanel = document.getElementById('previewPanel');
+            const btnEditor = document.getElementById('mobileTabEditor');
+            const btnPreview = document.getElementById('mobileTabPreview');
+
+            if (view === 'editor') {
+                editorPanel.classList.remove('hidden');
+                previewPanel.classList.add('hidden');
+                btnEditor.className = 'px-2.5 py-1 rounded-md text-[11px] font-bold bg-white text-blue-600 shadow-xs flex items-center gap-1 transition';
+                btnPreview.className = 'px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition';
+            } else {
+                editorPanel.classList.add('hidden');
+                previewPanel.classList.remove('hidden');
+                previewPanel.classList.add('flex');
+                btnPreview.className = 'px-2.5 py-1 rounded-md text-[11px] font-bold bg-white text-blue-600 shadow-xs flex items-center gap-1 transition';
+                btnEditor.className = 'px-2.5 py-1 rounded-md text-[11px] font-medium text-slate-600 hover:text-slate-900 flex items-center gap-1 transition';
+            }
+        };
+
+        // Subtabs (Photo / Sign / Settings)
+        window.switchSubTab = function(tab) {
+            const tabs = ['photo', 'sign', 'settings'];
+            tabs.forEach(t => {
+                const btn = document.getElementById('tabBtn' + t.charAt(0).toUpperCase() + t.slice(1));
+                const content = document.getElementById('subTab' + t.charAt(0).toUpperCase() + t.slice(1));
+                if (t === tab) {
+                    btn.className = 'flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold bg-white text-blue-600 shadow-xs flex items-center justify-center gap-1.5 transition';
+                    content.classList.remove('hidden');
+                } else {
+                    btn.className = 'flex-1 py-1.5 px-2 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center justify-center gap-1.5 transition';
+                    content.classList.add('hidden');
+                }
+            });
+        };
+
+        // --- 2. RENDERING ENGINE ---
+        function renderCard() {
+            ctx.fillStyle = state.appearance.bgColor;
+            ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+            renderPhotoSlot();
+            renderSignSlot();
+
+            if (state.appearance.outerBorder === 'thin') {
+                ctx.strokeStyle = '#cbd5e1';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(1, 1, CANVAS_WIDTH - 2, CANVAS_HEIGHT - 2);
+            } else if (state.appearance.outerBorder === 'solid') {
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(1.5, 1.5, CANVAS_WIDTH - 3, CANVAS_HEIGHT - 3);
+            }
+
+            updateOptimizedFileSizeEstimate();
+        }
+
+        function renderPhotoSlot() {
+            ctx.save();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(PHOTO_BOX_X, PHOTO_BOX_Y, PHOTO_BOX_W, PHOTO_BOX_H);
+            ctx.beginPath();
+            ctx.rect(PHOTO_BOX_X, PHOTO_BOX_Y, PHOTO_BOX_W, PHOTO_BOX_H);
+            ctx.clip();
+
+            if (state.photo.img) {
+                const img = state.photo.img;
+                const centerX = PHOTO_BOX_X + PHOTO_BOX_W / 2 + state.photo.xOffset;
+                const centerY = PHOTO_BOX_Y + PHOTO_BOX_H / 2 + state.photo.yOffset;
+                const coverScale = Math.max(PHOTO_BOX_W / img.width, PHOTO_BOX_H / img.height);
+                const finalScale = coverScale * state.photo.scale;
+                const drawW = img.width * finalScale;
+                const drawH = img.height * finalScale;
+
+                ctx.translate(centerX, centerY);
+                ctx.rotate((state.photo.rotation * Math.PI) / 180);
+                ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+            } else {
+                ctx.fillStyle = '#f1f5f9';
+                ctx.fillRect(PHOTO_BOX_X, PHOTO_BOX_Y, PHOTO_BOX_W, PHOTO_BOX_H);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '600 24px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('PASSPORT PHOTO', PHOTO_BOX_X + PHOTO_BOX_W / 2, PHOTO_BOX_Y + PHOTO_BOX_H / 2 - 14);
+                ctx.font = '400 18px Inter, sans-serif';
+                ctx.fillStyle = '#cbd5e1';
+                ctx.fillText('3.5 cm × 4.5 cm', PHOTO_BOX_X + PHOTO_BOX_W / 2, PHOTO_BOX_Y + PHOTO_BOX_H / 2 + 16);
+            }
+            ctx.restore();
+            drawSlotBorder(PHOTO_BOX_X, PHOTO_BOX_Y, PHOTO_BOX_W, PHOTO_BOX_H);
+        }
+
+        function renderSignSlot() {
+            ctx.save();
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(SIGN_BOX_X, SIGN_BOX_Y, SIGN_BOX_W, SIGN_BOX_H);
+            ctx.beginPath();
+            ctx.rect(SIGN_BOX_X, SIGN_BOX_Y, SIGN_BOX_W, SIGN_BOX_H);
+            ctx.clip();
+
+            if (state.sign.img) {
+                const img = state.sign.img;
+                const centerX = SIGN_BOX_X + SIGN_BOX_W / 2 + state.sign.xOffset;
+                const centerY = SIGN_BOX_Y + SIGN_BOX_H / 2 + state.sign.yOffset;
+                const fitScale = Math.min(SIGN_BOX_W / img.width, SIGN_BOX_H / img.height) * 0.95;
+                const finalScale = fitScale * state.sign.scale;
+                const drawW = img.width * finalScale;
+                const drawH = img.height * finalScale;
+
+                let renderSource = img;
+                if (state.sign.cleanBackground) {
+                    renderSource = processSignatureImage(img);
+                }
+
+                ctx.translate(centerX, centerY);
+                ctx.rotate((state.sign.rotation * Math.PI) / 180);
+                ctx.drawImage(renderSource, -drawW / 2, -drawH / 2, drawW, drawH);
+            } else {
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(SIGN_BOX_X, SIGN_BOX_Y, SIGN_BOX_W, SIGN_BOX_H);
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = '600 20px Inter, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('SIGNATURE', SIGN_BOX_X + SIGN_BOX_W / 2, SIGN_BOX_Y + SIGN_BOX_H / 2 - 10);
+                ctx.font = '400 16px Inter, sans-serif';
+                ctx.fillStyle = '#cbd5e1';
+                ctx.fillText('3.5 cm × 1.5 cm', SIGN_BOX_X + SIGN_BOX_W / 2, SIGN_BOX_Y + SIGN_BOX_H / 2 + 12);
+            }
+            ctx.restore();
+            drawSlotBorder(SIGN_BOX_X, SIGN_BOX_Y, SIGN_BOX_W, SIGN_BOX_H);
+        }
+
+        function drawSlotBorder(x, y, w, h) {
+            ctx.save();
+            if (state.appearance.slotBorder === 'subtle') {
+                ctx.strokeStyle = '#94a3b8';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([]);
+                ctx.strokeRect(x, y, w, h);
+            } else if (state.appearance.slotBorder === 'dashed') {
+                ctx.strokeStyle = '#64748b';
+                ctx.lineWidth = 1.5;
+                ctx.setLineDash([6, 4]);
+                ctx.strokeRect(x, y, w, h);
+            }
+            ctx.restore();
+        }
+
+        let processedSignCanvas = null;
+        let lastProcessedKey = '';
+
+        function processSignatureImage(img) {
+            const currentKey = `${img.src}_${state.sign.threshold}_${state.sign.contrast}_${state.sign.cleanBackground}`;
+            if (processedSignCanvas && lastProcessedKey === currentKey) {
+                return processedSignCanvas;
+            }
+
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = img.width;
+            offCanvas.height = img.height;
+            const offCtx = offCanvas.getContext('2d');
+            offCtx.drawImage(img, 0, 0);
+
+            try {
+                const imgData = offCtx.getImageData(0, 0, offCanvas.width, offCanvas.height);
+                const data = imgData.data;
+                const thresholdValue = (state.sign.threshold / 100) * 255;
+                const density = state.sign.contrast;
+
+                for (let i = 0; i < data.length; i += 4) {
+                    const r = data[i];
+                    const g = data[i + 1];
+                    const b = data[i + 2];
+                    const a = data[i + 3];
+                    if (a === 0) continue;
+
+                    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                    const isBluePen = (b > r + 15) || (b > g + 10);
+                    const isColoredInk = Math.abs(r - g) > 20 || Math.abs(g - b) > 20 || Math.abs(r - b) > 20;
+
+                    let inkMetric = lum;
+                    if (isBluePen) {
+                        inkMetric = Math.min(lum, (r * 0.7 + g * 0.3));
+                    } else if (isColoredInk) {
+                        inkMetric = Math.min(r, g, b);
+                    }
+
+                    if (inkMetric >= thresholdValue) {
+                        data[i] = 255;
+                        data[i + 1] = 255;
+                        data[i + 2] = 255;
+                    } else {
+                        const inkFactor = inkMetric / thresholdValue;
+                        const darkenedVal = Math.pow(inkFactor, density);
+                        const inkIntensity = Math.min(255, Math.max(0, Math.round(darkenedVal * 200)));
+                        data[i] = inkIntensity;
+                        data[i + 1] = inkIntensity;
+                        data[i + 2] = inkIntensity;
+                    }
+                }
+                offCtx.putImageData(imgData, 0, 0);
+                processedSignCanvas = offCanvas;
+                lastProcessedKey = currentKey;
+                return offCanvas;
+            } catch (e) {
+                return img;
+            }
+        }
+
+        // --- 3. INPUTS & DRAG LISTENERS ---
+        function handleFileUpload(file, type) {
+            if (!file || !file.type.startsWith('image/')) {
+                showToast('Please select a valid image');
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    if (type === 'photo') {
+                        state.photo.img = img;
+                        state.photo.scale = 1.0;
+                        state.photo.xOffset = 0;
+                        state.photo.yOffset = 0;
+                        state.photo.rotation = 0;
+                        photoZoom.value = 1.0;
+                        photoRot.value = 0;
+                        photoX.value = 0;
+                        photoY.value = 0;
+                        photoZoomVal.textContent = '1.0x';
+                        photoRotVal.textContent = '0°';
+                        photoXVal.textContent = '0px';
+                        photoYVal.textContent = '0px';
+                        photoStatusBadge.textContent = 'Loaded';
+                        photoStatusBadge.className = 'text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200';
+                        photoIndicator.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
+                        showToast('Photo loaded');
+                    } else {
+                        state.sign.img = img;
+                        state.sign.scale = 1.0;
+                        state.sign.xOffset = 0;
+                        state.sign.yOffset = 0;
+                        state.sign.rotation = 0;
+                        signZoom.value = 1.0;
+                        signRot.value = 0;
+                        signZoomVal.textContent = '1.0x';
+                        signRotVal.textContent = '0°';
+                        processedSignCanvas = null;
+                        signStatusBadge.textContent = 'Loaded';
+                        signStatusBadge.className = 'text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200';
+                        signIndicator.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500';
+                        showToast('Signature converted to black ink');
+                    }
+                    renderCard();
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        photoInput.addEventListener('change', (e) => { if (e.target.files.length) handleFileUpload(e.target.files[0], 'photo'); });
+        signInput.addEventListener('change', (e) => { if (e.target.files.length) handleFileUpload(e.target.files[0], 'sign'); });
+
+        photoZoom.addEventListener('input', (e) => { state.photo.scale = parseFloat(e.target.value); photoZoomVal.textContent = state.photo.scale.toFixed(2) + 'x'; renderCard(); });
+        photoRot.addEventListener('input', (e) => { state.photo.rotation = parseInt(e.target.value); photoRotVal.textContent = state.photo.rotation + '°'; renderCard(); });
+        photoX.addEventListener('input', (e) => { state.photo.xOffset = parseInt(e.target.value); photoXVal.textContent = state.photo.xOffset + 'px'; renderCard(); });
+        photoY.addEventListener('input', (e) => { state.photo.yOffset = parseInt(e.target.value); photoYVal.textContent = state.photo.yOffset + 'px'; renderCard(); });
+
+        signZoom.addEventListener('input', (e) => { state.sign.scale = parseFloat(e.target.value); signZoomVal.textContent = state.sign.scale.toFixed(2) + 'x'; renderCard(); });
+        signRot.addEventListener('input', (e) => { state.sign.rotation = parseInt(e.target.value); signRotVal.textContent = state.sign.rotation + '°'; renderCard(); });
+        signFilterToggle.addEventListener('change', (e) => { state.sign.cleanBackground = e.target.checked; filterControls.style.display = e.target.checked ? 'grid' : 'none'; processedSignCanvas = null; renderCard(); });
+        signThreshold.addEventListener('input', (e) => { state.sign.threshold = parseInt(e.target.value); signThresholdVal.textContent = state.sign.threshold + '%'; processedSignCanvas = null; renderCard(); });
+        signContrast.addEventListener('input', (e) => { state.sign.contrast = parseFloat(e.target.value); signContrastVal.textContent = state.sign.contrast.toFixed(1) + 'x'; processedSignCanvas = null; renderCard(); });
+
+        outerBorderSelect.addEventListener('change', (e) => { state.appearance.outerBorder = e.target.value; renderCard(); });
+        slotBorderSelect.addEventListener('change', (e) => { state.appearance.slotBorder = e.target.value; renderCard(); });
+
+        // --- 4. CANVAS PAN INTERACTION ---
+        function getCanvasCoordinates(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            const scaleX = CANVAS_WIDTH / rect.width;
+            const scaleY = CANVAS_HEIGHT / rect.height;
+            return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+        }
+
+        function isInsideBox(pt, bx, by, bw, bh) {
+            return pt.x >= bx && pt.x <= (bx + bw) && pt.y >= by && pt.y <= (by + bh);
+        }
+
+        function handleDragStart(e) {
+            const pt = getCanvasCoordinates(e);
+            if (isInsideBox(pt, PHOTO_BOX_X, PHOTO_BOX_Y, PHOTO_BOX_W, PHOTO_BOX_H)) {
+                state.drag.isDragging = true;
+                state.drag.activeTarget = 'photo';
+                state.drag.startX = pt.x;
+                state.drag.startY = pt.y;
+                state.drag.initialOffsetX = state.photo.xOffset;
+                state.drag.initialOffsetY = state.photo.yOffset;
+            } else if (isInsideBox(pt, SIGN_BOX_X, SIGN_BOX_Y, SIGN_BOX_W, SIGN_BOX_H)) {
+                state.drag.isDragging = true;
+                state.drag.activeTarget = 'sign';
+                state.drag.startX = pt.x;
+                state.drag.startY = pt.y;
+                state.drag.initialOffsetX = state.sign.xOffset;
+                state.drag.initialOffsetY = state.sign.yOffset;
+            }
+        }
+
+        function handleDragMove(e) {
+            if (!state.drag.isDragging) return;
+            e.preventDefault();
+            const pt = getCanvasCoordinates(e);
+            const dx = pt.x - state.drag.startX;
+            const dy = pt.y - state.drag.startY;
+
+            if (state.drag.activeTarget === 'photo') {
+                state.photo.xOffset = Math.round(state.drag.initialOffsetX + dx);
+                state.photo.yOffset = Math.round(state.drag.initialOffsetY + dy);
+                photoX.value = state.photo.xOffset;
+                photoXVal.textContent = state.photo.xOffset + 'px';
+                photoY.value = state.photo.yOffset;
+                photoYVal.textContent = state.photo.yOffset + 'px';
+                renderCard();
+            } else if (state.drag.activeTarget === 'sign') {
+                state.sign.xOffset = Math.round(state.drag.initialOffsetX + dx);
+                state.sign.yOffset = Math.round(state.drag.initialOffsetY + dy);
+                renderCard();
+            }
+        }
+
+        function handleDragEnd() { state.drag.isDragging = false; state.drag.activeTarget = null; }
+
+        canvas.addEventListener('mousedown', handleDragStart);
+        window.addEventListener('mousemove', handleDragMove);
+        window.addEventListener('mouseup', handleDragEnd);
+
+        canvas.addEventListener('touchstart', handleDragStart, { passive: false });
+        window.addEventListener('touchmove', handleDragMove, { passive: false });
+        window.addEventListener('touchend', handleDragEnd);
+
+        // --- 5. STRICT 50 KB - 90 KB COMPRESSOR ENGINE ---
+        targetSizeSlider.addEventListener('input', (e) => {
+            state.targetKB = parseInt(e.target.value);
+            targetSizeVal.textContent = state.targetKB + ' KB';
+            updateOptimizedFileSizeEstimate();
+        });
+
+        function dataURItoUint8Array(dataURI) {
+            const byteString = atob(dataURI.split(',')[1]);
+            const ia = new Uint8Array(byteString.length);
+            for (let i = 0; i < byteString.length; i++) {
+                ia[i] = byteString.charCodeAt(i);
+            }
+            return ia;
+        }
+
+        function padJpegToTargetBytes(uint8Arr, targetBytes) {
+            if (uint8Arr.length >= targetBytes) return uint8Arr;
+            const neededBytes = targetBytes - uint8Arr.length;
+            let currentData = Array.from(uint8Arr);
+            let remaining = neededBytes;
+
+            while (remaining > 0) {
+                const chunkSize = Math.min(remaining, 65000);
+                const comHeader = [0xFF, 0xFE];
+                const len = chunkSize + 2;
+                const lenBytes = [(len >> 8) & 0xFF, len & 0xFF];
+                const paddingBytes = new Array(chunkSize).fill(0x20);
+                currentData.splice(2, 0, ...comHeader, ...lenBytes, ...paddingBytes);
+                remaining -= (chunkSize + 4);
+            }
+            return new Uint8Array(currentData);
+        }
+
+        async function getStrictOptimizedJpegBlob(targetKB = state.targetKB) {
+            const minBytes = 50 * 1024;
+            const maxBytes = 90 * 1024;
+            const desiredBytes = Math.min(maxBytes - 1024, Math.max(minBytes + 1024, targetKB * 1024));
+
+            let lowQuality = 0.05;
+            let highQuality = 1.0;
+            let bestQuality = 0.85;
+
+            for (let i = 0; i < 9; i++) {
+                const testQuality = (lowQuality + highQuality) / 2;
+                const dataUrl = canvas.toDataURL('image/jpeg', testQuality);
+                const bytes = dataURItoUint8Array(dataUrl);
+                bestQuality = testQuality;
+                if (bytes.length < desiredBytes) lowQuality = testQuality;
+                else highQuality = testQuality;
+            }
+
+            let finalBytes = dataURItoUint8Array(canvas.toDataURL('image/jpeg', bestQuality));
+            if (finalBytes.length < minBytes) finalBytes = padJpegToTargetBytes(finalBytes, desiredBytes);
+
+            if (finalBytes.length > maxBytes) {
+                let q = 0.5;
+                while (q > 0.05) {
+                    const candidate = dataURItoUint8Array(canvas.toDataURL('image/jpeg', q));
+                    if (candidate.length <= maxBytes) {
+                        finalBytes = candidate;
+                        break;
+                    }
+                    q -= 0.08;
+                }
+            }
+            return new Blob([finalBytes], { type: 'image/jpeg' });
+        }
+
+        let estimateDebounceTimer;
+        function updateOptimizedFileSizeEstimate() {
+            clearTimeout(estimateDebounceTimer);
+            estimateDebounceTimer = setTimeout(async () => {
+                const blob = await getStrictOptimizedJpegBlob(state.targetKB);
+                lastOptimizedBlob = blob;
+                const kb = (blob.size / 1024).toFixed(1);
+                currentSizeText.textContent = `${kb} KB`;
+                downloadBtnLabel.textContent = `Download JPG (${kb} KB • 50–90 KB)`;
+            }, 80);
+        }
+
+        window.downloadOptimizedJpg = async function() {
+            let blob = lastOptimizedBlob || await getStrictOptimizedJpegBlob(state.targetKB);
+            const kb = (blob.size / 1024).toFixed(1);
+            const fileName = `Photo_Sign_4.5x8.5cm_${kb}KB.jpg`;
+            const url = URL.createObjectURL(blob);
+            triggerDownload(url, fileName);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            showToast(`Saved JPEG: ${kb} KB (Within 50–90 KB)`);
+        };
+
+        window.downloadAs = function(format) {
+            downloadMenu.classList.add('hidden');
+            const fileName = `Photo_Sign_4.5x8.5cm`;
+            if (format === 'png') {
+                triggerDownload(canvas.toDataURL('image/png'), `${fileName}.png`);
+                showToast('Lossless PNG downloaded');
+            } else if (format === 'pdf') {
+                if (!window.jspdf || !window.jspdf.jsPDF) return;
+                const { jsPDF } = window.jspdf;
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [45, 85] });
+                doc.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 45, 85, undefined, 'FAST');
+                doc.save(`${fileName}.pdf`);
+                showToast('PDF downloaded (45 × 85 mm)');
+            }
+        };
+
+        function triggerDownload(url, filename) {
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        downloadDropdownBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            downloadMenu.classList.toggle('hidden');
+        });
+        window.addEventListener('click', () => downloadMenu.classList.add('hidden'));
+
+        resetAllBtn.addEventListener('click', () => {
+            state.photo.img = null;
+            state.photo.scale = 1.0;
+            state.photo.xOffset = 0;
+            state.photo.yOffset = 0;
+            state.photo.rotation = 0;
+            photoInput.value = '';
+            photoStatusBadge.textContent = 'Awaiting Upload';
+            photoStatusBadge.className = 'text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200';
+            photoIndicator.className = 'w-1.5 h-1.5 rounded-full bg-slate-300';
+
+            state.sign.img = null;
+            state.sign.scale = 1.0;
+            state.sign.xOffset = 0;
+            state.sign.yOffset = 0;
+            state.sign.rotation = 0;
+            signInput.value = '';
+            processedSignCanvas = null;
+            signStatusBadge.textContent = 'Awaiting Upload';
+            signStatusBadge.className = 'text-[10px] font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200';
+            signIndicator.className = 'w-1.5 h-1.5 rounded-full bg-slate-300';
+
+            renderCard();
+            showToast('Reset completed');
+        });
+
+        let toastTimeout;
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMsg');
+            toastMsg.textContent = message;
+            toast.classList.remove('translate-y-16', 'opacity-0');
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => toast.classList.add('translate-y-16', 'opacity-0'), 2500);
+        }
+
+        window.addEventListener('load', renderCard);
+        window.addEventListener('resize', renderCard);
+    </script>
+</body>
+</html>
